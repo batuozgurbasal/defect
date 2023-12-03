@@ -1,0 +1,86 @@
+import cv2
+import numpy as np
+import os
+import matplotlib.pyplot as plt
+import glob
+
+def adjust_roi(roi_coords, x_padding, y_padding, width_adjust, height_adjust, image_shape):
+    x, y, w, h = roi_coords
+    x = max(x - x_padding, 0)
+    y = max(y - y_padding, 0)
+    w = min(w + width_adjust, image_shape[1] - x)
+    h = min(h + height_adjust, image_shape[0] - y)
+    return x, y, w, h
+
+def process_image(image_path, roi_coords_left, roi_coords_right, roi_coords_top, roi_coords_bottom, 
+                  left_adjustments, right_adjustments, top_adjustments, bottom_adjustments):
+    image = cv2.imread(image_path)
+
+    if image is None:
+        print(f"Failed to load image from {image_path}")
+        return
+
+    original_image = image.copy()
+
+    # Adjust ROI coordinates for all regions
+    x_left, y_left, w_left, h_left = adjust_roi(roi_coords_left, *left_adjustments, image.shape)
+    x_right, y_right, w_right, h_right = adjust_roi(roi_coords_right, *right_adjustments, image.shape)
+    x_top, y_top, w_top, h_top = adjust_roi(roi_coords_top, *top_adjustments, image.shape)
+    x_bottom, y_bottom, w_bottom, h_bottom = adjust_roi(roi_coords_bottom, *bottom_adjustments, image.shape)
+
+    # Define and process each ROI
+    rois = [(x_left, y_left, w_left, h_left), (x_right, y_right, w_right, h_right),
+            (x_top, y_top, w_top, h_top), (x_bottom, y_bottom, w_bottom, h_bottom)]
+
+    for x, y, w, h in rois:
+        roi = image[y:y + h, x:x + w]
+        gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
+        blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+        threshold1 = 20
+        threshold2 = 50
+        edges = cv2.Canny(blurred, threshold1, threshold2)
+        contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+        min_area_threshold = 5
+        border_margin = 10
+
+        for contour in contours:
+            cx, cy, cw, ch = cv2.boundingRect(contour)
+            if cx > border_margin and cy > border_margin and \
+               cx + cw < roi.shape[1] - border_margin and \
+               cy + ch < roi.shape[0] - border_margin:
+                area = cv2.contourArea(contour)
+                if area > min_area_threshold:
+                    aspect_ratio = cw / float(ch)
+                    if 0.1 < aspect_ratio < 2.0:
+                        cv2.drawContours(roi, [contour], -1, (0, 255, 0), 3)
+                        # Overlay the processed ROI back onto the original image
+                        original_image[y:y + h, x:x + w] = roi
+
+    # Display the original image with both ROIs and marked defects
+    original_image_rgb = cv2.cvtColor(original_image, cv2.COLOR_BGR2RGB)
+    plt.imshow(original_image_rgb)
+    plt.title('Original Image with ROIs and Detected Defects')
+    plt.show()
+
+# Define the ROI coordinates for left, right, top, and bottom (x, y, width, height)
+roi_coords_left = (1050, 800, 150, 1620)
+roi_coords_right = (2630, 800, 150, 1620)
+roi_coords_top = (1050, 100, 900, 150)  # Update as needed
+roi_coords_bottom = (1050, 2780, 900, 150)  # Update as needed
+
+# Adjustments for each ROI
+left_adjustments = (-20, 500, -50, 750)
+right_adjustments = (20, 500, -50, 750)
+top_adjustments = (-20, -50, 750, -50)  # Update as needed
+bottom_adjustments = (-20, 50, 750, -50)  # Update as needed
+
+# Folder path
+folder_path = r"C:\Users\ozgur\Desktop\images2"
+image_files = glob.glob(os.path.join(folder_path, "*.bmp"))
+
+for image_file in image_files:
+    process_image(image_file, roi_coords_left, roi_coords_right, roi_coords_top, roi_coords_bottom, 
+                  left_adjustments, right_adjustments, top_adjustments, bottom_adjustments)
+
+
